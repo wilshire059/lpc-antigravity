@@ -13,8 +13,8 @@ import argparse
 # =============================================================================
 # TUNABLE PARAMETERS FOR DIAGONAL GENERATION
 # =============================================================================
-DIAGONAL_WIDTH_SQUASH = 0.85  # How much to compress width (0.0-1.0)
-DIAGONAL_SHEAR_AMOUNT = 0.1   # How much to slant the image (0.0-0.3 recommended)
+DIAGONAL_WIDTH_SQUASH = 0.75  # How much to compress width (0.0-1.0) - more squash for better diagonal
+DIAGONAL_SHEAR_AMOUNT = 0.2   # How much to slant the image (0.0-0.3 recommended) - increased for more angle
 
 # =============================================================================
 # CORE IMAGE PROCESSING
@@ -191,13 +191,13 @@ def generate_diagonal(image, direction='ne', width_squash=DIAGONAL_WIDTH_SQUASH,
     is_lpc_format = height % 4 == 0 and height >= 256
 
     if is_lpc_format:
-        # LPC format: 4 rows (S, W, N, E)
+        # LPC format: 4 rows (Row 0=S, Row 1=W, Row 2=N, Row 3=E)
         # Extract appropriate row based on diagonal direction
-        # NE/NW use North (row 2), SE/SW use South (row 0)
-        if direction in ['ne', 'nw']:
-            source_row = extract_sprite_row(image, 2)  # North/Up row
-        else:  # 'se', 'sw'
-            source_row = extract_sprite_row(image, 0)  # South/Down row
+        # NE/SE use East (row 3), NW/SW use West (row 1)
+        if direction in ['ne', 'se']:
+            source_row = extract_sprite_row(image, 3)  # East/Right row
+        else:  # 'nw', 'sw'
+            source_row = extract_sprite_row(image, 1)  # West/Left row
 
         # Use the extracted row for transformation
         image_to_transform = source_row
@@ -236,7 +236,90 @@ def generate_diagonal(image, direction='ne', width_squash=DIAGONAL_WIDTH_SQUASH,
     return sheared
 
 
-def generate_diagonal_variant(source_file, output_file, direction='ne'):
+def generate_blended_diagonal(image, direction='ne', width_squash=DIAGONAL_WIDTH_SQUASH,
+                               shear_amount=DIAGONAL_SHEAR_AMOUNT, blend_ratio=0.6):
+    """
+    Generate a blended diagonal view by compositing two cardinal directions.
+    Creates 8 truly unique directional sprites.
+
+    Args:
+        image: PIL.Image (LPC format with 4 rows: S, W, N, E)
+        direction: Target diagonal direction ('ne', 'nw', 'se', 'sw')
+        width_squash: How much to compress width (default from tunable param)
+        shear_amount: How much to slant (default from tunable param)
+        blend_ratio: Primary/secondary blend ratio (0.0-1.0, default 0.6 = 60% primary, 40% secondary)
+
+    Returns:
+        PIL.Image: Blended diagonal sprite
+    """
+    width, height = image.size
+
+    # Check if this is a 4-row LPC sprite sheet
+    is_lpc_format = height % 4 == 0 and height >= 256
+
+    if not is_lpc_format:
+        # Fall back to simple diagonal if not LPC format
+        return generate_diagonal(image, direction, width_squash, shear_amount)
+
+    # Define row pairs for each diagonal
+    # Format: (primary_row, secondary_row)
+    row_mapping = {
+        'ne': (3, 2),  # East + North
+        'nw': (1, 2),  # West + North
+        'se': (3, 0),  # East + South
+        'sw': (1, 0)   # West + South
+    }
+
+    primary_row_idx, secondary_row_idx = row_mapping[direction]
+
+    # Extract both rows
+    primary_row = extract_sprite_row(image, primary_row_idx)
+    secondary_row = extract_sprite_row(image, secondary_row_idx)
+
+    # Transform primary row (side view - East or West)
+    transform_width, transform_height = primary_row.size
+    new_width = int(transform_width * width_squash)
+
+    # Primary transformation (stronger horizontal shear for side view)
+    primary_squashed = primary_row.resize((new_width, transform_height), Image.NEAREST)
+
+    if direction in ['ne', 'se']:
+        primary_matrix = (1, shear_amount, 0, 0, 1, 0)  # Slant right
+    else:
+        primary_matrix = (1, -shear_amount, new_width * shear_amount, 0, 1, 0)  # Slant left
+
+    primary_transformed = primary_squashed.transform(
+        primary_squashed.size,
+        Image.AFFINE,
+        primary_matrix,
+        resample=Image.NEAREST
+    )
+
+    # Transform secondary row (front/back view - North or South)
+    # Apply gentler transformation to secondary for depth perspective
+    secondary_squashed = secondary_row.resize((new_width, transform_height), Image.NEAREST)
+
+    # Secondary gets subtle horizontal shear + vertical perspective
+    if direction in ['ne', 'se']:
+        secondary_matrix = (1, shear_amount * 0.5, 0, 0, 1, 0)  # Gentler slant
+    else:
+        secondary_matrix = (1, -shear_amount * 0.5, new_width * shear_amount * 0.5, 0, 1, 0)
+
+    secondary_transformed = secondary_squashed.transform(
+        secondary_squashed.size,
+        Image.AFFINE,
+        secondary_matrix,
+        resample=Image.NEAREST
+    )
+
+    # Blend the two transformed images
+    # Use alpha blending: result = primary * blend_ratio + secondary * (1 - blend_ratio)
+    blended = Image.blend(secondary_transformed, primary_transformed, blend_ratio)
+
+    return blended
+
+
+def generate_diagonal_variant(source_file, output_file, direction='ne', use_blending=True):
     """
     Generate a diagonal variant of a single sprite.
 
@@ -244,19 +327,26 @@ def generate_diagonal_variant(source_file, output_file, direction='ne'):
         source_file: Path to source sprite
         output_file: Path to output file
         direction: Diagonal direction
+        use_blending: If True, blend two cardinal directions for more accurate 8-dir (default: True)
     """
-    print(f"\n[DIAGONAL] Generating {direction.upper()} diagonal view")
+    blend_mode = "BLENDED" if use_blending else "SIMPLE"
+    print(f"\n[DIAGONAL-{blend_mode}] Generating {direction.upper()} diagonal view")
     print(f"   Source: {source_file}")
     print(f"   Output: {output_file}")
     print(f"   Params: width_squash={DIAGONAL_WIDTH_SQUASH}, shear={DIAGONAL_SHEAR_AMOUNT}")
+    if use_blending:
+        print(f"   Mode: Blending two cardinal directions for true 8-directional")
 
     # Load image
     img = process_image(source_file)
     if img is None:
         return
 
-    # Generate diagonal
-    diagonal = generate_diagonal(img, direction)
+    # Generate diagonal (blended or simple)
+    if use_blending:
+        diagonal = generate_blended_diagonal(img, direction)
+    else:
+        diagonal = generate_diagonal(img, direction)
 
     # Save
     save_image(diagonal, Path(output_file))
