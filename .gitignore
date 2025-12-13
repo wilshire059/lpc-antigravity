@@ -1,0 +1,41 @@
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+env/
+ENV/
+.venv
+
+# LPC Generator (external clone)
+lpc_generator/
+
+# Generated assets (comment out if you want to track them)
+output/
+generated/
+*_cursed/
+*_diagonal/
+
+# Backups
+*.backup
+*.bak
+backups/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
