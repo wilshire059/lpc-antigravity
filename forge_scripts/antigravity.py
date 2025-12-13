@@ -148,28 +148,69 @@ def generate_recolor_variant(source_folder, output_folder, old_colors, new_color
 # 8-DIRECTIONAL MODULE - Diagonal Generation
 # =============================================================================
 
+def extract_sprite_row(image, row_index):
+    """
+    Extract a single row from an LPC 4-row sprite sheet.
+
+    Args:
+        image: PIL.Image (LPC format sprite sheet with 4 rows)
+        row_index: Row to extract (0=S/Down, 1=W/Left, 2=N/Up, 3=E/Right)
+
+    Returns:
+        PIL.Image: Single row extracted
+    """
+    width, height = image.size
+    row_height = height // 4
+
+    # Calculate crop box (left, top, right, bottom)
+    top = row_index * row_height
+    bottom = top + row_height
+
+    return image.crop((0, top, width, bottom))
+
+
 def generate_diagonal(image, direction='ne', width_squash=DIAGONAL_WIDTH_SQUASH,
                      shear_amount=DIAGONAL_SHEAR_AMOUNT):
     """
     Generate a diagonal view from a cardinal direction sprite.
     Uses affine transformations to simulate 3/4 perspective.
+    For LPC 4-row sprites, extracts appropriate row and transforms it.
 
     Args:
-        image: PIL.Image (should be front-facing or side-facing sprite)
+        image: PIL.Image (LPC format with 4 rows: S, W, N, E)
         direction: Target diagonal direction ('ne', 'nw', 'se', 'sw')
         width_squash: How much to compress width (default from tunable param)
         shear_amount: How much to slant (default from tunable param)
 
     Returns:
-        PIL.Image: Transformed image
+        PIL.Image: Transformed image (single row for diagonal direction)
     """
     width, height = image.size
 
+    # Check if this is a 4-row LPC sprite sheet
+    is_lpc_format = height % 4 == 0 and height >= 256
+
+    if is_lpc_format:
+        # LPC format: 4 rows (S, W, N, E)
+        # Extract appropriate row based on diagonal direction
+        # NE/NW use North (row 2), SE/SW use South (row 0)
+        if direction in ['ne', 'nw']:
+            source_row = extract_sprite_row(image, 2)  # North/Up row
+        else:  # 'se', 'sw'
+            source_row = extract_sprite_row(image, 0)  # South/Down row
+
+        # Use the extracted row for transformation
+        image_to_transform = source_row
+    else:
+        # Not LPC format, transform entire image
+        image_to_transform = image
+
     # Calculate new dimensions
-    new_width = int(width * width_squash)
+    transform_width, transform_height = image_to_transform.size
+    new_width = int(transform_width * width_squash)
 
     # Resize width first (squash)
-    squashed = image.resize((new_width, height), Image.NEAREST)
+    squashed = image_to_transform.resize((new_width, transform_height), Image.NEAREST)
 
     # Apply shear transformation
     # Affine matrix: (a, b, c, d, e, f) where transformation is:
