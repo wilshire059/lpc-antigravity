@@ -55,7 +55,7 @@ def save_image(img, output_path, preserve_pixel_art=True):
 
     # Save as PNG to preserve transparency and pixel-perfect quality
     img.save(output_path, 'PNG', optimize=False)
-    print(f"✓ Saved: {output_path}")
+    print(f"[OK] Saved: {output_path}")
 
 
 # =============================================================================
@@ -115,7 +115,7 @@ def generate_recolor_variant(source_folder, output_folder, old_colors, new_color
         print(f"Error: Source folder '{source_folder}' does not exist.")
         return
 
-    print(f"\n🎨 Recoloring sprites from '{source_folder}' to '{output_folder}'")
+    print(f"\n[RECOLOR] Processing sprites from '{source_folder}' to '{output_folder}'")
     print(f"   Replacing {len(old_colors)} color(s) with RGB{new_color}")
 
     # Process all PNG files in source folder
@@ -141,7 +141,7 @@ def generate_recolor_variant(source_folder, output_folder, old_colors, new_color
         # Save with same filename
         save_image(recolored, output_file)
 
-    print(f"\n✓ Recoloring complete! Processed {len(png_files)} file(s).")
+    print(f"\n[SUCCESS] Recoloring complete! Processed {len(png_files)} file(s).")
 
 
 # =============================================================================
@@ -204,7 +204,7 @@ def generate_diagonal_variant(source_file, output_file, direction='ne'):
         output_file: Path to output file
         direction: Diagonal direction
     """
-    print(f"\n🔄 Generating {direction.upper()} diagonal view")
+    print(f"\n[DIAGONAL] Generating {direction.upper()} diagonal view")
     print(f"   Source: {source_file}")
     print(f"   Output: {output_file}")
     print(f"   Params: width_squash={DIAGONAL_WIDTH_SQUASH}, shear={DIAGONAL_SHEAR_AMOUNT}")
@@ -220,7 +220,7 @@ def generate_diagonal_variant(source_file, output_file, direction='ne'):
     # Save
     save_image(diagonal, Path(output_file))
 
-    print(f"✓ Diagonal generation complete!")
+    print(f"[SUCCESS] Diagonal generation complete!")
 
 
 # =============================================================================

@@ -35,7 +35,7 @@ def create_backup(file_path):
     backup_path = backup_dir / backup_name
 
     shutil.copy2(file_path, backup_path)
-    print(f"  💾 Backup created: {backup_path}")
+    print(f"  [BACKUP] Created: {backup_path}")
 
     return backup_path
 
@@ -55,7 +55,7 @@ def save_json(file_path, data):
     try:
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-        print(f"  ✓ Updated: {file_path}")
+        print(f"  [OK] Updated: {file_path}")
         return True
     except Exception as e:
         print(f"Error saving {file_path}: {e}")
@@ -174,7 +174,7 @@ def inject_missing_entries(spritesheet_dir, definitions_dir, dry_run=False):
         definitions_dir: Path to sheet_definitions directory
         dry_run: If True, only print what would be done without making changes
     """
-    print("\n🔍 Scanning sprite sheets and definitions...")
+    print("\n[SCAN] Scanning sprite sheets and definitions...")
 
     # Scan what we have
     inventory = scan_spritesheet_directory(spritesheet_dir)
@@ -209,22 +209,22 @@ def inject_missing_entries(spritesheet_dir, definitions_dir, dry_run=False):
                 })
 
     if not missing_entries:
-        print("\n✓ All sprites are already registered in definitions!")
+        print("\n[OK] All sprites are already registered in definitions!")
         return
 
     # Report what will be added
-    print(f"\n📝 Found {sum(len(v) for v in missing_entries.values())} missing entry/entries:")
+    print(f"\n[FOUND] {sum(len(v) for v in missing_entries.values())} missing entry/entries:")
     for category, entries in missing_entries.items():
         print(f"\n   {category}: {len(entries)} new entry/entries")
         for entry in entries:
             print(f"      - {entry['name']} ({entry['gender']})")
 
     if dry_run:
-        print("\n🔍 Dry run mode - no changes made.")
+        print("\n[DRY RUN] No changes made.")
         return
 
     # Inject entries
-    print("\n📥 Injecting missing entries into JSON definitions...")
+    print("\n[INJECT] Adding missing entries to JSON definitions...")
 
     for category, entries in missing_entries.items():
         json_file = Path(definitions_dir) / f"{category}.json"
@@ -234,10 +234,10 @@ def inject_missing_entries(spritesheet_dir, definitions_dir, dry_run=False):
             create_backup(json_file)
             data = load_json(json_file)
             if data is None:
-                print(f"   ⚠ Skipping {category} due to load error")
+                print(f"   [WARNING] Skipping {category} due to load error")
                 continue
         else:
-            print(f"   ℹ Creating new definition file: {json_file}")
+            print(f"   [INFO] Creating new definition file: {json_file}")
             data = []
 
         # Append new entries
@@ -246,7 +246,7 @@ def inject_missing_entries(spritesheet_dir, definitions_dir, dry_run=False):
         # Save
         save_json(json_file, data)
 
-    print("\n✓ JSON injection complete!")
+    print("\n[SUCCESS] JSON injection complete!")
 
 
 # =============================================================================
