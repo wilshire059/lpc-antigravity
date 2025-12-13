@@ -1,0 +1,309 @@
+#!/usr/bin/env python3
+"""
+Antigravity Pipeline - Universal LPC Spritesheet Manipulator
+Programmatically manipulate pixel art assets using procedural transformations.
+"""
+
+import os
+import sys
+from pathlib import Path
+from PIL import Image, ImageTransform
+import argparse
+
+# =============================================================================
+# TUNABLE PARAMETERS FOR DIAGONAL GENERATION
+# =============================================================================
+DIAGONAL_WIDTH_SQUASH = 0.85  # How much to compress width (0.0-1.0)
+DIAGONAL_SHEAR_AMOUNT = 0.1   # How much to slant the image (0.0-0.3 recommended)
+
+# =============================================================================
+# CORE IMAGE PROCESSING
+# =============================================================================
+
+def process_image(image_path):
+    """
+    Load an image as RGBA, preserving pixel art integrity.
+
+    Args:
+        image_path: Path to the image file
+
+    Returns:
+        PIL.Image: Loaded image in RGBA mode
+    """
+    try:
+        img = Image.open(image_path)
+        # Force RGBA mode for consistent processing
+        if img.mode != 'RGBA':
+            img = img.convert('RGBA')
+        return img
+    except Exception as e:
+        print(f"Error loading {image_path}: {e}")
+        return None
+
+
+def save_image(img, output_path, preserve_pixel_art=True):
+    """
+    Save an image, preserving pixel art quality.
+
+    Args:
+        img: PIL.Image to save
+        output_path: Destination path
+        preserve_pixel_art: If True, use PNG with no compression artifacts
+    """
+    # Ensure output directory exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Save as PNG to preserve transparency and pixel-perfect quality
+    img.save(output_path, 'PNG', optimize=False)
+    print(f"✓ Saved: {output_path}")
+
+
+# =============================================================================
+# RECOLOR MODULE - Palette Swapping
+# =============================================================================
+
+def apply_palette_swap(image, old_colors, new_color):
+    """
+    Replace specific colors in an image with a new color.
+
+    Args:
+        image: PIL.Image in RGBA mode
+        old_colors: List of RGB tuples to replace [(r,g,b), ...]
+        new_color: RGB tuple for the replacement color (r,g,b)
+
+    Returns:
+        PIL.Image: Modified image
+    """
+    # Convert image to pixel data
+    pixels = image.load()
+    width, height = image.size
+
+    # Create output image
+    output = image.copy()
+    output_pixels = output.load()
+
+    # Convert old_colors list to set for faster lookup
+    old_colors_set = set(old_colors)
+
+    # Iterate through all pixels
+    for y in range(height):
+        for x in range(width):
+            r, g, b, a = pixels[x, y]
+
+            # Check if pixel color matches any old color
+            if (r, g, b) in old_colors_set:
+                # Preserve alpha, replace RGB
+                output_pixels[x, y] = (new_color[0], new_color[1], new_color[2], a)
+
+    return output
+
+
+def generate_recolor_variant(source_folder, output_folder, old_colors, new_color):
+    """
+    Generate a recolored variant of all sprites in a folder.
+
+    Args:
+        source_folder: Path to source sprite folder
+        output_folder: Path to output folder
+        old_colors: List of RGB tuples to replace
+        new_color: RGB tuple for replacement
+    """
+    source_path = Path(source_folder)
+    output_path = Path(output_folder)
+
+    if not source_path.exists():
+        print(f"Error: Source folder '{source_folder}' does not exist.")
+        return
+
+    print(f"\n🎨 Recoloring sprites from '{source_folder}' to '{output_folder}'")
+    print(f"   Replacing {len(old_colors)} color(s) with RGB{new_color}")
+
+    # Process all PNG files in source folder
+    png_files = list(source_path.rglob("*.png"))
+
+    if not png_files:
+        print(f"Warning: No PNG files found in {source_folder}")
+        return
+
+    for img_file in png_files:
+        # Preserve relative path structure
+        relative_path = img_file.relative_to(source_path)
+        output_file = output_path / relative_path
+
+        # Process image
+        img = process_image(img_file)
+        if img is None:
+            continue
+
+        # Apply palette swap
+        recolored = apply_palette_swap(img, old_colors, new_color)
+
+        # Save with same filename
+        save_image(recolored, output_file)
+
+    print(f"\n✓ Recoloring complete! Processed {len(png_files)} file(s).")
+
+
+# =============================================================================
+# 8-DIRECTIONAL MODULE - Diagonal Generation
+# =============================================================================
+
+def generate_diagonal(image, direction='ne', width_squash=DIAGONAL_WIDTH_SQUASH,
+                     shear_amount=DIAGONAL_SHEAR_AMOUNT):
+    """
+    Generate a diagonal view from a cardinal direction sprite.
+    Uses affine transformations to simulate 3/4 perspective.
+
+    Args:
+        image: PIL.Image (should be front-facing or side-facing sprite)
+        direction: Target diagonal direction ('ne', 'nw', 'se', 'sw')
+        width_squash: How much to compress width (default from tunable param)
+        shear_amount: How much to slant (default from tunable param)
+
+    Returns:
+        PIL.Image: Transformed image
+    """
+    width, height = image.size
+
+    # Calculate new dimensions
+    new_width = int(width * width_squash)
+
+    # Resize width first (squash)
+    squashed = image.resize((new_width, height), Image.NEAREST)
+
+    # Apply shear transformation
+    # Affine matrix: (a, b, c, d, e, f) where transformation is:
+    # x' = a*x + b*y + c
+    # y' = d*x + e*y + f
+
+    # Determine shear direction based on target diagonal
+    if direction in ['ne', 'se']:
+        # Slant right
+        transform_matrix = (1, shear_amount, 0, 0, 1, 0)
+    else:  # 'nw', 'sw'
+        # Slant left
+        transform_matrix = (1, -shear_amount, new_width * shear_amount, 0, 1, 0)
+
+    # Apply transformation with NEAREST neighbor (preserves hard pixel edges)
+    sheared = squashed.transform(
+        squashed.size,
+        Image.AFFINE,
+        transform_matrix,
+        resample=Image.NEAREST
+    )
+
+    return sheared
+
+
+def generate_diagonal_variant(source_file, output_file, direction='ne'):
+    """
+    Generate a diagonal variant of a single sprite.
+
+    Args:
+        source_file: Path to source sprite
+        output_file: Path to output file
+        direction: Diagonal direction
+    """
+    print(f"\n🔄 Generating {direction.upper()} diagonal view")
+    print(f"   Source: {source_file}")
+    print(f"   Output: {output_file}")
+    print(f"   Params: width_squash={DIAGONAL_WIDTH_SQUASH}, shear={DIAGONAL_SHEAR_AMOUNT}")
+
+    # Load image
+    img = process_image(source_file)
+    if img is None:
+        return
+
+    # Generate diagonal
+    diagonal = generate_diagonal(img, direction)
+
+    # Save
+    save_image(diagonal, Path(output_file))
+
+    print(f"✓ Diagonal generation complete!")
+
+
+# =============================================================================
+# BATCH PROCESSING
+# =============================================================================
+
+def batch_process_folder(source_folder, output_folder, operation='recolor', **kwargs):
+    """
+    Batch process an entire folder of sprites.
+
+    Args:
+        source_folder: Path to source folder
+        output_folder: Path to output folder
+        operation: Type of operation ('recolor', 'diagonal')
+        **kwargs: Operation-specific parameters
+    """
+    if operation == 'recolor':
+        old_colors = kwargs.get('old_colors', [])
+        new_color = kwargs.get('new_color', (0, 255, 0))
+        generate_recolor_variant(source_folder, output_folder, old_colors, new_color)
+
+    elif operation == 'diagonal':
+        direction = kwargs.get('direction', 'ne')
+        source_path = Path(source_folder)
+        output_path = Path(output_folder)
+
+        for img_file in source_path.rglob("*.png"):
+            relative_path = img_file.relative_to(source_path)
+            output_file = output_path / relative_path.parent / f"{relative_path.stem}_diagonal.png"
+            generate_diagonal_variant(img_file, output_file, direction)
+
+
+# =============================================================================
+# CLI INTERFACE
+# =============================================================================
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Antigravity Pipeline - Manipulate LPC sprite sheets'
+    )
+
+    subparsers = parser.add_subparsers(dest='command', help='Command to run')
+
+    # Recolor command
+    recolor_parser = subparsers.add_parser('recolor', help='Recolor sprites')
+    recolor_parser.add_argument('source', help='Source folder path')
+    recolor_parser.add_argument('output', help='Output folder path')
+    recolor_parser.add_argument('--old-colors', nargs='+', required=True,
+                               help='Old RGB colors to replace (e.g., "128,128,128")')
+    recolor_parser.add_argument('--new-color', required=True,
+                               help='New RGB color (e.g., "0,255,0")')
+
+    # Diagonal command
+    diagonal_parser = subparsers.add_parser('diagonal', help='Generate diagonal views')
+    diagonal_parser.add_argument('source', help='Source image or folder')
+    diagonal_parser.add_argument('output', help='Output path')
+    diagonal_parser.add_argument('--direction', default='ne',
+                                choices=['ne', 'nw', 'se', 'sw'],
+                                help='Diagonal direction')
+
+    args = parser.parse_args()
+
+    if args.command == 'recolor':
+        # Parse colors
+        old_colors = []
+        for color_str in args.old_colors:
+            r, g, b = map(int, color_str.split(','))
+            old_colors.append((r, g, b))
+
+        new_r, new_g, new_b = map(int, args.new_color.split(','))
+        new_color = (new_r, new_g, new_b)
+
+        generate_recolor_variant(args.source, args.output, old_colors, new_color)
+
+    elif args.command == 'diagonal':
+        if os.path.isfile(args.source):
+            generate_diagonal_variant(args.source, args.output, args.direction)
+        else:
+            batch_process_folder(args.source, args.output, 'diagonal', direction=args.direction)
+
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()
