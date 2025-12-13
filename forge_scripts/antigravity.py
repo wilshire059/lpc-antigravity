@@ -280,13 +280,24 @@ def generate_blended_diagonal(image, direction='ne', width_squash=DIAGONAL_WIDTH
     transform_width, transform_height = primary_row.size
     new_width = int(transform_width * width_squash)
 
-    # Primary transformation (stronger horizontal shear for side view)
+    # Primary transformation (stronger horizontal shear for side view + vertical skew)
     primary_squashed = primary_row.resize((new_width, transform_height), Image.NEAREST)
 
-    if direction in ['ne', 'se']:
-        primary_matrix = (1, shear_amount, 0, 0, 1, 0)  # Slant right
+    # Add vertical skew to distinguish up (NE/NW) from down (SE/SW) diagonals
+    vertical_skew = 0.15  # Strength of vertical perspective
+
+    if direction in ['ne', 'nw']:
+        # Up diagonals: lean back/upward (negative vertical skew)
+        if direction == 'ne':
+            primary_matrix = (1, shear_amount, 0, -vertical_skew, 1, transform_height * vertical_skew)
+        else:  # nw
+            primary_matrix = (1, -shear_amount, new_width * shear_amount, -vertical_skew, 1, transform_height * vertical_skew)
     else:
-        primary_matrix = (1, -shear_amount, new_width * shear_amount, 0, 1, 0)  # Slant left
+        # Down diagonals: lean forward/downward (positive vertical skew)
+        if direction == 'se':
+            primary_matrix = (1, shear_amount, 0, vertical_skew, 1, 0)
+        else:  # sw
+            primary_matrix = (1, -shear_amount, new_width * shear_amount, vertical_skew, 1, 0)
 
     primary_transformed = primary_squashed.transform(
         primary_squashed.size,
