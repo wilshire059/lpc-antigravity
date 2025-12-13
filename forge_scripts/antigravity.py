@@ -327,7 +327,21 @@ def generate_blended_diagonal(image, direction='ne', width_squash=DIAGONAL_WIDTH
     # Use alpha blending: result = primary * blend_ratio + secondary * (1 - blend_ratio)
     blended = Image.blend(secondary_transformed, primary_transformed, blend_ratio)
 
-    return blended
+    # Re-center and normalize dimensions for paper doll layering
+    # This ensures all diagonal sprites have identical dimensions and alignment
+    original_width, original_height = primary_row.size
+
+    # Create a new canvas with original dimensions
+    centered_canvas = Image.new('RGBA', (original_width, transform_height), (0, 0, 0, 0))
+
+    # Calculate centering offset
+    blended_width = blended.width
+    x_offset = (original_width - blended_width) // 2
+
+    # Paste blended sprite centered on canvas
+    centered_canvas.paste(blended, (x_offset, 0), blended)
+
+    return centered_canvas
 
 
 def generate_diagonal_variant(source_file, output_file, direction='ne', use_blending=True):
