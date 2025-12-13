@@ -241,6 +241,7 @@ def generate_blended_diagonal(image, direction='ne', width_squash=DIAGONAL_WIDTH
     """
     Generate a blended diagonal view by compositing two cardinal directions.
     Creates 8 truly unique directional sprites.
+    Processes each frame individually to prevent edge frame loss.
 
     Args:
         image: PIL.Image (LPC format with 4 rows: S, W, N, E)
@@ -250,7 +251,7 @@ def generate_blended_diagonal(image, direction='ne', width_squash=DIAGONAL_WIDTH
         blend_ratio: Primary/secondary blend ratio (0.0-1.0, default 0.6 = 60% primary, 40% secondary)
 
     Returns:
-        PIL.Image: Blended diagonal sprite
+        PIL.Image: Blended diagonal sprite row with all frames preserved
     """
     width, height = image.size
 
@@ -276,72 +277,80 @@ def generate_blended_diagonal(image, direction='ne', width_squash=DIAGONAL_WIDTH
     primary_row = extract_sprite_row(image, primary_row_idx)
     secondary_row = extract_sprite_row(image, secondary_row_idx)
 
-    # Transform primary row (side view - East or West)
-    transform_width, transform_height = primary_row.size
-    new_width = int(transform_width * width_squash)
+    # Determine frame size (typically 64x64 for LPC sprites)
+    row_height = primary_row.height
+    frame_size = row_height  # Assuming square frames
+    num_frames = primary_row.width // frame_size
 
-    # Primary transformation (stronger horizontal shear for side view + vertical skew)
-    primary_squashed = primary_row.resize((new_width, transform_height), Image.NEAREST)
+    # Create output canvas for all frames
+    output_row = Image.new('RGBA', (primary_row.width, row_height), (0, 0, 0, 0))
 
-    # Add vertical skew to distinguish up (NE/NW) from down (SE/SW) diagonals
-    vertical_skew = 0.15  # Strength of vertical perspective
+    # Process each frame individually to prevent edge loss
+    for frame_idx in range(num_frames):
+        x_start = frame_idx * frame_size
+        x_end = x_start + frame_size
 
-    if direction in ['ne', 'nw']:
-        # Up diagonals: lean back/upward (negative vertical skew)
-        if direction == 'ne':
-            primary_matrix = (1, shear_amount, 0, -vertical_skew, 1, transform_height * vertical_skew)
-        else:  # nw
-            primary_matrix = (1, -shear_amount, new_width * shear_amount, -vertical_skew, 1, transform_height * vertical_skew)
-    else:
-        # Down diagonals: lean forward/downward (positive vertical skew)
-        if direction == 'se':
-            primary_matrix = (1, shear_amount, 0, vertical_skew, 1, 0)
-        else:  # sw
-            primary_matrix = (1, -shear_amount, new_width * shear_amount, vertical_skew, 1, 0)
+        # Extract individual frames
+        primary_frame = primary_row.crop((x_start, 0, x_end, row_height))
+        secondary_frame = secondary_row.crop((x_start, 0, x_end, row_height))
 
-    primary_transformed = primary_squashed.transform(
-        primary_squashed.size,
-        Image.AFFINE,
-        primary_matrix,
-        resample=Image.NEAREST
-    )
+        # Transform this frame
+        new_width = int(frame_size * width_squash)
 
-    # Transform secondary row (front/back view - North or South)
-    # Apply gentler transformation to secondary for depth perspective
-    secondary_squashed = secondary_row.resize((new_width, transform_height), Image.NEAREST)
+        # Primary transformation
+        primary_squashed = primary_frame.resize((new_width, frame_size), Image.NEAREST)
 
-    # Secondary gets subtle horizontal shear + vertical perspective
-    if direction in ['ne', 'se']:
-        secondary_matrix = (1, shear_amount * 0.5, 0, 0, 1, 0)  # Gentler slant
-    else:
-        secondary_matrix = (1, -shear_amount * 0.5, new_width * shear_amount * 0.5, 0, 1, 0)
+        # Add vertical skew to distinguish up (NE/NW) from down (SE/SW) diagonals
+        vertical_skew = 0.15
 
-    secondary_transformed = secondary_squashed.transform(
-        secondary_squashed.size,
-        Image.AFFINE,
-        secondary_matrix,
-        resample=Image.NEAREST
-    )
+        if direction in ['ne', 'nw']:
+            # Up diagonals: lean back/upward (negative vertical skew)
+            if direction == 'ne':
+                primary_matrix = (1, shear_amount, 0, -vertical_skew, 1, frame_size * vertical_skew)
+            else:  # nw
+                primary_matrix = (1, -shear_amount, new_width * shear_amount, -vertical_skew, 1, frame_size * vertical_skew)
+        else:
+            # Down diagonals: lean forward/downward (positive vertical skew)
+            if direction == 'se':
+                primary_matrix = (1, shear_amount, 0, vertical_skew, 1, 0)
+            else:  # sw
+                primary_matrix = (1, -shear_amount, new_width * shear_amount, vertical_skew, 1, 0)
 
-    # Blend the two transformed images
-    # Use alpha blending: result = primary * blend_ratio + secondary * (1 - blend_ratio)
-    blended = Image.blend(secondary_transformed, primary_transformed, blend_ratio)
+        primary_transformed = primary_squashed.transform(
+            primary_squashed.size,
+            Image.AFFINE,
+            primary_matrix,
+            resample=Image.NEAREST
+        )
 
-    # Re-center and normalize dimensions for paper doll layering
-    # This ensures all diagonal sprites have identical dimensions and alignment
-    original_width, original_height = primary_row.size
+        # Transform secondary frame
+        secondary_squashed = secondary_frame.resize((new_width, frame_size), Image.NEAREST)
 
-    # Create a new canvas with original dimensions
-    centered_canvas = Image.new('RGBA', (original_width, transform_height), (0, 0, 0, 0))
+        if direction in ['ne', 'se']:
+            secondary_matrix = (1, shear_amount * 0.5, 0, 0, 1, 0)
+        else:
+            secondary_matrix = (1, -shear_amount * 0.5, new_width * shear_amount * 0.5, 0, 1, 0)
 
-    # Calculate centering offset
-    blended_width = blended.width
-    x_offset = (original_width - blended_width) // 2
+        secondary_transformed = secondary_squashed.transform(
+            secondary_squashed.size,
+            Image.AFFINE,
+            secondary_matrix,
+            resample=Image.NEAREST
+        )
 
-    # Paste blended sprite centered on canvas
-    centered_canvas.paste(blended, (x_offset, 0), blended)
+        # Blend the two transformed frames
+        blended_frame = Image.blend(secondary_transformed, primary_transformed, blend_ratio)
 
-    return centered_canvas
+        # Center this frame in a frame_size x frame_size canvas
+        frame_canvas = Image.new('RGBA', (frame_size, frame_size), (0, 0, 0, 0))
+        blended_width = blended_frame.width
+        x_offset = (frame_size - blended_width) // 2
+        frame_canvas.paste(blended_frame, (x_offset, 0), blended_frame)
+
+        # Paste this frame into the output row
+        output_row.paste(frame_canvas, (x_start, 0), frame_canvas)
+
+    return output_row
 
 
 def generate_diagonal_variant(source_file, output_file, direction='ne', use_blending=True):
